@@ -1,2 +1,4 @@
-<?PHP echo "Hello THM"; ?>
+<?php
+include('/etc/flag3')
+?>
 
