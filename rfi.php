@@ -1,5 +1,5 @@
 <?php
-include('/etc/flag3');
+// include('/etc/flag3');
 
 // Method 1: Using exec() - Returns output as array
 echo "=== Method 1: Using exec() ===\n";
