@@ -24,7 +24,7 @@ class RSSFeedAdmin(admin.ModelAdmin):
         }),
     )
     
-    actions = ['mark_active', 'mark_inactive']
+    actions = ['mark_active', 'mark_inactive', 'process_feed']
     
     def mark_active(self, request, queryset):
         queryset.update(is_active=True)
@@ -35,6 +35,13 @@ class RSSFeedAdmin(admin.ModelAdmin):
         queryset.update(is_active=False)
         self.message_user(request, f"{queryset.count()} RSS feeds marked as inactive.")
     mark_inactive.short_description = "Mark selected RSS feeds as inactive"
+    
+    def process_feed(self, request, queryset):
+        """Process selected RSS feeds."""
+        for rss_feed in queryset:
+            rss_feed.process_feed()
+        self.message_user(request, f"Processing initiated for {queryset.count()} RSS feeds.")
+    process_feed.short_description = "Process selected RSS feeds"
 
 
 @admin.register(Podcast)
@@ -70,7 +77,7 @@ class PodcastAdmin(admin.ModelAdmin):
         }),
     )
     
-    actions = ['clear_transcript', 'export_transcripts']
+    actions = ['clear_transcript', 'export_transcripts', 'fetch_transcript']
     
     def clear_transcript(self, request, queryset):
         queryset.update(transcript='')
@@ -82,3 +89,10 @@ class PodcastAdmin(admin.ModelAdmin):
         count = queryset.filter(transcript__isnull=False).exclude(transcript='').count()
         self.message_user(request, f"Found {count} podcasts with transcripts to export.")
     export_transcripts.short_description = "Export transcripts for selected podcasts"
+    
+    def fetch_transcript(self, request, queryset):
+        """Fetch transcripts for selected podcasts."""
+        for podcast in queryset:
+            podcast.process_transcript()
+        self.message_user(request, f"Transcript processing initiated for {queryset.count()} podcasts.")
+    fetch_transcript.short_description = "Fetch transcripts for selected podcasts"

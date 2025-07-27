@@ -1,23 +1,23 @@
 from celery import shared_task
-import requests
-from django.conf import settings
 from audio_processing.models import Podcast
 
 
 @shared_task
 def process_file(public_filename):
+    """
+    Celery task to process a podcast file and generate transcript.
+    """
     print(f"Processing S3 file: {public_filename}")
-    url = "https://api.lemonfox.ai/v1/audio/transcriptions"
-    api_key = settings.WHISPER_API_KEY
-    headers = {"Authorization": f"Bearer {api_key}"}
-    data = {
-        "file": public_filename,
-        "language": "english",
-        "response_format": "json",
-    }
-    response = requests.post(url, headers=headers, data=data)
-    transcript = response.json().get("text", "")
+    
+    # Get or create podcast entry
     podcast, created = Podcast.objects.get_or_create(raw_audio_url=public_filename)
-    podcast.transcript = transcript
-    podcast.save()
-    print(f"Podcast entry updated: {podcast}")
+    
+    # Process transcript using model method
+    transcript = podcast.process_transcript()
+    
+    if transcript:
+        print(f"Podcast transcript updated: {podcast}")
+        return {"success": True, "transcript_length": len(transcript)}
+    else:
+        print(f"Failed to process transcript for: {podcast}")
+        return {"success": False, "error": "Failed to generate transcript"}
