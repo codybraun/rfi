@@ -1,11 +1,11 @@
 from django.contrib import admin
-from .models import RSSFeed, Podcast
+from .models import RSSFeed, Podcast, Tag
 
 
 @admin.register(RSSFeed)
 class RSSFeedAdmin(admin.ModelAdmin):
     list_display = ('name', 'url', 'is_active', 'last_processed', 'podcast_count', 'created_at')
-    list_filter = ('is_active', 'created_at', 'last_processed')
+    list_filter = ('is_active', 'created_at', 'last_processed', 'tags')
     search_fields = ('name', 'url', 'description')
     readonly_fields = ('created_at', 'updated_at', 'last_processed')
     list_editable = ('is_active',)
@@ -16,7 +16,7 @@ class RSSFeedAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('name', 'url', 'description', 'is_active')
+            'fields': ('name', 'url', 'description', 'is_active', 'tags')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at', 'last_processed'),
@@ -47,7 +47,7 @@ class RSSFeedAdmin(admin.ModelAdmin):
 @admin.register(Podcast)
 class PodcastAdmin(admin.ModelAdmin):
     list_display = ('truncated_url', 'rss_feed', 'has_transcript', 'created_at', 'updated_at')
-    list_filter = ('rss_feed', 'created_at', 'updated_at')
+    list_filter = ('rss_feed', 'created_at', 'updated_at', 'tags')
     search_fields = ('raw_audio_url', 'transcript', 'rss_feed__name')
     readonly_fields = ('created_at', 'updated_at')
     raw_id_fields = ('rss_feed',)
@@ -65,7 +65,7 @@ class PodcastAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('rss_feed', 'raw_audio_url')
+            'fields': ('rss_feed', 'raw_audio_url', 'tags')
         }),
         ('Content', {
             'fields': ('transcript',),
@@ -77,7 +77,7 @@ class PodcastAdmin(admin.ModelAdmin):
         }),
     )
     
-    actions = ['clear_transcript', 'export_transcripts', 'fetch_transcript']
+    actions = ['clear_transcript', 'export_transcripts', 'fetch_transcript', 'suggest_tags']
     
     def clear_transcript(self, request, queryset):
         queryset.update(transcript='')
@@ -96,3 +96,94 @@ class PodcastAdmin(admin.ModelAdmin):
             podcast.process_transcript()
         self.message_user(request, f"Transcript processing initiated for {queryset.count()} podcasts.")
     fetch_transcript.short_description = "Fetch transcripts for selected podcasts"
+    
+    def suggest_tags(self, request, queryset):
+        """Use AI to suggest and apply tags to selected podcasts."""
+        success_count = 0
+        error_count = 0
+        no_transcript_count = 0
+        
+        for podcast in queryset:
+            if not podcast.transcript or not podcast.transcript.strip():
+                no_transcript_count += 1
+                continue
+                
+            try:
+                applied_tags = podcast.suggest_and_apply_tags()
+                if applied_tags is not None:
+                    success_count += 1
+                    if applied_tags:
+                        self.message_user(
+                            request, 
+                            f"Applied {len(applied_tags)} tags to podcast: {podcast.raw_audio_url[:50]}..."
+                        )
+                else:
+                    error_count += 1
+            except Exception as e:
+                error_count += 1
+                self.message_user(
+                    request, 
+                    f"Error suggesting tags for {podcast.raw_audio_url[:50]}...: {str(e)}", 
+                    level='ERROR'
+                )
+        
+        if success_count > 0:
+            self.message_user(
+                request, 
+                f"Successfully suggested tags for {success_count} podcasts."
+            )
+        
+        if no_transcript_count > 0:
+            self.message_user(
+                request, 
+                f"{no_transcript_count} podcasts skipped (no transcript available).", 
+                level='WARNING'
+            )
+        
+        if error_count > 0:
+            self.message_user(
+                request, 
+                f"{error_count} podcasts failed to process.", 
+                level='ERROR'
+            )
+    
+    suggest_tags.short_description = "AI suggest and apply tags for selected podcasts"
+
+
+@admin.register(Tag)
+class TagAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug', 'color_display', 'rss_feed_count', 'podcast_count', 'created_at')
+    list_filter = ('created_at', 'updated_at')
+    search_fields = ('name', 'slug', 'description')
+    readonly_fields = ('created_at', 'updated_at')
+    prepopulated_fields = {'slug': ('name',)}
+    
+    def color_display(self, obj):
+        """Display color as a colored box."""
+        if obj.color:
+            return f'<span style="background-color: {obj.color}; padding: 3px 8px; border-radius: 3px; color: white;">{obj.color}</span>'
+        return '-'
+    color_display.allow_tags = True
+    color_display.short_description = 'Color'
+    
+    def rss_feed_count(self, obj):
+        return obj.rss_feeds.count()
+    rss_feed_count.short_description = 'RSS Feeds'
+    
+    def podcast_count(self, obj):
+        return obj.podcasts.count()
+    podcast_count.short_description = 'Podcasts'
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'slug', 'description')
+        }),
+        ('Appearance', {
+            'fields': ('color',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )

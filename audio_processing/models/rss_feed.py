@@ -12,6 +12,7 @@ class RSSFeed(models.Model):
     description = models.TextField(blank=True, null=True, help_text="Description of the podcast feed")
     is_active = models.BooleanField(default=True, help_text="Whether to actively process this feed")
     last_processed = models.DateTimeField(blank=True, null=True, help_text="Last time this feed was processed")
+    tags = models.ManyToManyField('Tag', blank=True, related_name='rss_feeds', help_text="Tags associated with this RSS feed")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
