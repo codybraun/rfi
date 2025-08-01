@@ -1,23 +1,25 @@
 from celery import shared_task
 from audio_processing.models import Podcast
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task
-def process_file(public_filename):
+def add_transcript(podcast_id):
     """
     Celery task to process a podcast file and generate transcript.
     """
-    print(f"Processing S3 file: {public_filename}")
-    
+    logger.info(f"Processing transcript for podcast ID: {podcast_id}")
     # Get or create podcast entry
-    podcast, created = Podcast.objects.get_or_create(raw_audio_url=public_filename)
+    podcast = Podcast.objects.get(pk=podcast_id)
     
     # Process transcript using model method
-    transcript = podcast.process_transcript()
+    transcript = podcast.generate_transcript()
     
     if transcript:
-        print(f"Podcast transcript updated: {podcast}")
+        logger.info(f"Podcast transcript updated: {podcast}")
         return {"success": True, "transcript_length": len(transcript)}
     else:
-        print(f"Failed to process transcript for: {podcast}")
+        logger.error(f"Failed to process transcript for: {podcast}")
         return {"success": False, "error": "Failed to generate transcript"}

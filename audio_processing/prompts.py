@@ -35,14 +35,35 @@ Please provide:
 
 Keep your response concise and factual."""
 
-def get_speaker_transcript_prompt(speaker_name, transcript_excerpt):
-    return f"""From this podcast transcript, extract the parts spoken by the various speakers as well as you can.
+def get_speaker_transcript_prompt(transcript_excerpt):
+    """
+    Generate a prompt for converting a transcript into a speaker-formatted script.
+    
+    Args:
+        transcript_excerpt: The podcast transcript to format
+    
+    Returns:
+        str: Formatted prompt for speaker identification and script formatting
+    """
+    return f"""You are an AI assistant that converts podcast transcripts into properly formatted scripts with speaker identification.
 
-You may not be able to identify all speakers, but do your best. You can label them speaker1, speaker2, etc. if you don't know their names.
+Original transcript:
+{transcript_excerpt}
 
-Structure it like this:
+Please rewrite this transcript as a script format with identified speakers. Follow these guidelines:
 
-Speaker 1: Dialogue from speaker 1
-Speaker 2: Dialogue from speaker 2
-etc.
-"""
+1. Identify different speakers as best as you can from context clues, speaking patterns, and content
+2. Label speakers as "Host", "Guest", "Speaker 1", "Speaker 2", etc. based on their apparent roles
+3. Format each line as "Speaker Name: [dialogue]"
+4. Preserve the original content and meaning
+5. Add stage directions in [brackets] where helpful for context
+6. Remove filler words like "um", "uh", "you know" for readability
+7. Break long speeches into natural paragraphs
+
+Example format:
+Host: Welcome to today's show. We're here with our special guest.
+Guest: Thanks for having me on the show.
+Host: Let's dive right into our main topic today.
+[Discussion continues...]
+
+Please provide the complete formatted script below:"""

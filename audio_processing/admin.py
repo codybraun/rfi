@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import RSSFeed, Podcast, Tag
-
+from audio_processing.tasks.podcast_tasks import add_transcript
 
 @admin.register(RSSFeed)
 class RSSFeedAdmin(admin.ModelAdmin):
@@ -46,9 +46,9 @@ class RSSFeedAdmin(admin.ModelAdmin):
 
 @admin.register(Podcast)
 class PodcastAdmin(admin.ModelAdmin):
-    list_display = ('truncated_url', 'rss_feed', 'has_transcript', 'created_at', 'updated_at')
+    list_display = ('truncated_url', 'rss_feed', 'has_transcript', 'has_script', 'created_at', 'updated_at')
     list_filter = ('rss_feed', 'created_at', 'updated_at', 'tags')
-    search_fields = ('raw_audio_url', 'transcript', 'rss_feed__name')
+    search_fields = ('raw_audio_url', 'transcript', 'script_transcript', 'rss_feed__name')
     readonly_fields = ('created_at', 'updated_at')
     raw_id_fields = ('rss_feed',)
     
@@ -63,12 +63,17 @@ class PodcastAdmin(admin.ModelAdmin):
     has_transcript.boolean = True
     has_transcript.short_description = 'Has Transcript'
     
+    def has_script(self, obj):
+        return bool(obj.script_transcript and obj.script_transcript.strip())
+    has_script.boolean = True
+    has_script.short_description = 'Has Script'
+    
     fieldsets = (
         ('Basic Information', {
             'fields': ('rss_feed', 'raw_audio_url', 'tags')
         }),
         ('Content', {
-            'fields': ('transcript',),
+            'fields': ('transcript', 'script_transcript'),
             'classes': ('wide',)
         }),
         ('Timestamps', {
@@ -77,7 +82,7 @@ class PodcastAdmin(admin.ModelAdmin):
         }),
     )
     
-    actions = ['clear_transcript', 'export_transcripts', 'fetch_transcript', 'suggest_tags']
+    actions = ['clear_transcript', 'export_transcripts', 'fetch_transcript', 'suggest_tags', 'generate_speaker_scripts', 'run_complete_workflow']
     
     def clear_transcript(self, request, queryset):
         queryset.update(transcript='')
@@ -93,7 +98,7 @@ class PodcastAdmin(admin.ModelAdmin):
     def fetch_transcript(self, request, queryset):
         """Fetch transcripts for selected podcasts."""
         for podcast in queryset:
-            podcast.process_transcript()
+            add_transcript.delay(podcast.id)
         self.message_user(request, f"Transcript processing initiated for {queryset.count()} podcasts.")
     fetch_transcript.short_description = "Fetch transcripts for selected podcasts"
     
@@ -148,6 +153,118 @@ class PodcastAdmin(admin.ModelAdmin):
             )
     
     suggest_tags.short_description = "AI suggest and apply tags for selected podcasts"
+    
+    def generate_speaker_scripts(self, request, queryset):
+        """Generate speaker-attributed scripts for selected podcasts."""
+        success_count = 0
+        error_count = 0
+        no_transcript_count = 0
+        already_has_script_count = 0
+        
+        for podcast in queryset:
+            if not podcast.transcript or not podcast.transcript.strip():
+                no_transcript_count += 1
+                continue
+            
+            if podcast.script_transcript and podcast.script_transcript.strip():
+                already_has_script_count += 1
+                continue
+                
+            try:
+                script = podcast.generate_speaker_script()
+                if script:
+                    success_count += 1
+                    self.message_user(
+                        request, 
+                        f"Generated speaker script for podcast: {podcast.raw_audio_url[:50]}..."
+                    )
+                else:
+                    error_count += 1
+            except Exception as e:
+                error_count += 1
+                self.message_user(
+                    request, 
+                    f"Error generating speaker script for {podcast.raw_audio_url[:50]}...: {str(e)}", 
+                    level='ERROR'
+                )
+        
+        if success_count > 0:
+            self.message_user(
+                request, 
+                f"Successfully generated speaker scripts for {success_count} podcasts."
+            )
+        
+        if no_transcript_count > 0:
+            self.message_user(
+                request, 
+                f"{no_transcript_count} podcasts skipped (no transcript available).", 
+                level='WARNING'
+            )
+        
+        if already_has_script_count > 0:
+            self.message_user(
+                request, 
+                f"{already_has_script_count} podcasts skipped (already have speaker scripts).", 
+                level='WARNING'
+            )
+        
+        if error_count > 0:
+            self.message_user(
+                request, 
+                f"{error_count} podcasts failed to generate speaker scripts.", 
+                level='ERROR'
+            )
+    
+    generate_speaker_scripts.short_description = "Generate speaker scripts for selected podcasts"
+    
+    def run_complete_workflow(self, request, queryset):
+        """Run the complete workflow (transcript, tags, speaker script) for selected podcasts."""
+        total_processed = 0
+        total_transcripts = 0
+        total_tags_applied = 0
+        total_scripts = 0
+        total_errors = []
+        
+        for podcast in queryset:
+            try:
+                results = podcast.process_complete_workflow()
+                total_processed += 1
+                
+                if results['transcript_generated']:
+                    total_transcripts += 1
+                
+                total_tags_applied += results['tags_applied']
+                
+                if results['script_generated']:
+                    total_scripts += 1
+                
+                if results['errors']:
+                    total_errors.extend([f"{podcast.raw_audio_url[:30]}...: {err}" for err in results['errors']])
+                
+            except Exception as e:
+                total_errors.append(f"{podcast.raw_audio_url[:30]}...: {str(e)}")
+        
+        # Provide detailed feedback
+        self.message_user(
+            request, 
+            f"Processed {total_processed} podcasts. "
+            f"Generated {total_transcripts} transcripts, "
+            f"applied {total_tags_applied} tags, "
+            f"created {total_scripts} speaker scripts."
+        )
+        
+        if total_errors:
+            for error in total_errors[:5]:  # Show first 5 errors
+                self.message_user(request, f"Error: {error}", level='ERROR')
+            
+            if len(total_errors) > 5:
+                self.message_user(
+                    request, 
+                    f"...and {len(total_errors) - 5} more errors. Check logs for details.", 
+                    level='ERROR'
+                )
+    
+    run_complete_workflow.short_description = "Run complete workflow (transcript + tags + speaker script)"
 
 
 @admin.register(Tag)
