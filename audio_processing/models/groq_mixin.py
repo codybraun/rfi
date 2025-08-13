@@ -1,7 +1,7 @@
 import logging
 from django.conf import settings
 import requests
-
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +141,8 @@ class GroqMixin():
             
             result = response.json()
             script_content = result['choices'][0]['message']['content'].strip()
+
+            script_content = re.sub(r'<think>.*?</think>', '', script_content, flags=re.DOTALL).strip()
             
             if script_content:
                 self.script_transcript = script_content
