@@ -47,6 +47,7 @@ Please rewrite this transcript as a script format with identified speakers. Foll
 8. Maintain the original order of dialogue
 9. Do not include any introductory text or explanations about what you are doing.
 10. Be liberal in identifying speakers based on context, even if not explicitly stated in the transcript.
+11. Do not add descriptions of visual elements- you cannot see what is happening!
 
 Example format:
 Ezra Klein: Welcome to today's show. I'm Ezra Klein here with my guest John Doe.

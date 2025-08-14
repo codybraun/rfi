@@ -1,9 +1,11 @@
 from django.contrib import admin
 from .models import RSSFeed, Podcast, Tag
-from audio_processing.tasks.podcast_tasks import add_transcript
+from audio_processing.tasks.podcast_tasks import add_transcript, suggest_and_apply_tags, process_complete_workflow
+from import_export.admin import ImportExportModelAdmin
+
 
 @admin.register(RSSFeed)
-class RSSFeedAdmin(admin.ModelAdmin):
+class RSSFeedAdmin(ImportExportModelAdmin):
     list_display = ('name', 'url', 'is_active', 'last_processed', 'podcast_count', 'created_at')
     list_filter = ('is_active', 'created_at', 'last_processed', 'tags')
     search_fields = ('name', 'url', 'description')
@@ -112,18 +114,8 @@ class PodcastAdmin(admin.ModelAdmin):
             if not podcast.transcript or not podcast.transcript.strip():
                 no_transcript_count += 1
                 continue
-                
             try:
-                applied_tags = podcast.suggest_and_apply_tags()
-                if applied_tags is not None:
-                    success_count += 1
-                    if applied_tags:
-                        self.message_user(
-                            request, 
-                            f"Applied {len(applied_tags)} tags to podcast: {podcast.raw_audio_url[:50]}..."
-                        )
-                else:
-                    error_count += 1
+                applied_tags = suggest_and_apply_tags.delay(podcast.id)
             except Exception as e:
                 error_count += 1
                 self.message_user(
@@ -172,14 +164,6 @@ class PodcastAdmin(admin.ModelAdmin):
                 
             try:
                 script = podcast.generate_speaker_script()
-                if script:
-                    success_count += 1
-                    self.message_user(
-                        request, 
-                        f"Generated speaker script for podcast: {podcast.raw_audio_url[:50]}..."
-                    )
-                else:
-                    error_count += 1
             except Exception as e:
                 error_count += 1
                 self.message_user(
@@ -220,37 +204,18 @@ class PodcastAdmin(admin.ModelAdmin):
     def run_complete_workflow(self, request, queryset):
         """Run the complete workflow (transcript, tags, speaker script) for selected podcasts."""
         total_processed = 0
-        total_transcripts = 0
-        total_tags_applied = 0
-        total_scripts = 0
         total_errors = []
         
         for podcast in queryset:
             try:
-                results = podcast.process_complete_workflow()
+                process_complete_workflow.delay(podcast.id)
                 total_processed += 1
-                
-                if results['transcript_generated']:
-                    total_transcripts += 1
-                
-                total_tags_applied += results['tags_applied']
-                
-                if results['script_generated']:
-                    total_scripts += 1
-                
-                if results['errors']:
-                    total_errors.extend([f"{podcast.raw_audio_url[:30]}...: {err}" for err in results['errors']])
-                
             except Exception as e:
                 total_errors.append(f"{podcast.raw_audio_url[:30]}...: {str(e)}")
         
-        # Provide detailed feedback
         self.message_user(
             request, 
             f"Processed {total_processed} podcasts. "
-            f"Generated {total_transcripts} transcripts, "
-            f"applied {total_tags_applied} tags, "
-            f"created {total_scripts} speaker scripts."
         )
         
         if total_errors:
@@ -268,7 +233,7 @@ class PodcastAdmin(admin.ModelAdmin):
 
 
 @admin.register(Tag)
-class TagAdmin(admin.ModelAdmin):
+class TagAdmin(ImportExportModelAdmin):
     list_display = ('name', 'slug', 'color_display', 'rss_feed_count', 'podcast_count', 'created_at')
     list_filter = ('created_at', 'updated_at')
     search_fields = ('name', 'slug', 'description')
