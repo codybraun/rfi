@@ -69,9 +69,3 @@ def get_rss_feed_summary(rss_feed_id):
         return rss_feed.get_summary()
     except RSSFeed.DoesNotExist:
         return {'error': f"RSS feed with ID {rss_feed_id} does not exist"}
-
-
-# Example usage:
-# process_podcast_rss_feed('https://feeds.simplecast.com/54nAGcIl')
-# process_rss_feed_by_id.delay(1)  # Process RSS feed with ID 1
-# process_all_active_rss_feeds.delay()  # Process all active RSS feeds

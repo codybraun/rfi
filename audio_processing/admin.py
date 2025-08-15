@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import RSSFeed, Podcast, Tag
 from audio_processing.tasks.podcast_tasks import add_transcript, suggest_and_apply_tags, process_complete_workflow
 from import_export.admin import ImportExportModelAdmin
-
+from audio_processing.tasks.rss_tasks import process_rss_feed_by_id
 
 @admin.register(RSSFeed)
 class RSSFeedAdmin(ImportExportModelAdmin):
@@ -41,7 +41,7 @@ class RSSFeedAdmin(ImportExportModelAdmin):
     def process_feed(self, request, queryset):
         """Process selected RSS feeds."""
         for rss_feed in queryset:
-            rss_feed.process_feed()
+            process_rss_feed_by_id.delay(rss_feed.id)
         self.message_user(request, f"Processing initiated for {queryset.count()} RSS feeds.")
     process_feed.short_description = "Process selected RSS feeds"
 
@@ -77,7 +77,7 @@ class PodcastAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('rss_feed', 'raw_audio_url', 'tags')
+            'fields': ('rss_feed', 'raw_audio_url', 'tags', 'title', 'release_date')
         }),
         ('Content', {
             'fields': ('transcript', 'script_transcript', 'summary'),
