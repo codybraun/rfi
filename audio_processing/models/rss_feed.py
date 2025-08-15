@@ -79,19 +79,56 @@ class RSSFeed(models.Model):
             logger.warning(f"No audio URL found for entry: {title}")
             return None
         
+        # Extract release date from RSS entry
+        release_date = None
+        if hasattr(entry, 'published_parsed') and entry.published_parsed:
+            try:
+                import time
+                from datetime import datetime
+                # Convert struct_time to datetime
+                timestamp = time.mktime(entry.published_parsed)
+                release_date = datetime.fromtimestamp(timestamp, tz=timezone.get_current_timezone())
+            except Exception as e:
+                logger.warning(f"Failed to parse published date for entry '{title}': {str(e)}")
+        
+        # Fallback: try 'updated_parsed' if 'published_parsed' is not available
+        if not release_date and hasattr(entry, 'updated_parsed') and entry.updated_parsed:
+            try:
+                import time
+                from datetime import datetime
+                timestamp = time.mktime(entry.updated_parsed)
+                release_date = datetime.fromtimestamp(timestamp, tz=timezone.get_current_timezone())
+            except Exception as e:
+                logger.warning(f"Failed to parse updated date for entry '{title}': {str(e)}")
+        
         # Check if podcast already exists
         existing_podcast = Podcast.objects.filter(raw_audio_url=audio_url).first()
         if existing_podcast:
-            logger.info(f"Podcast already exists: {title}")
+            # Update release_date and title if they're not set and we have values
+            updated = False
+            if not existing_podcast.release_date and release_date:
+                existing_podcast.release_date = release_date
+                updated = True
+            if not existing_podcast.title and title:
+                existing_podcast.title = title
+                updated = True
+            
+            if updated:
+                existing_podcast.save()
+                logger.info(f"Updated existing podcast: {title} - {release_date}")
+            else:
+                logger.info(f"Podcast already exists: {title}")
             return existing_podcast
         
         # Create new podcast
         try:
             podcast = Podcast.objects.create(
                 raw_audio_url=audio_url,
-                rss_feed=self
+                rss_feed=self,
+                title=title,
+                release_date=release_date
             )
-            logger.info(f"Created podcast: {title} - {audio_url}")
+            logger.info(f"Created podcast: {title} - {audio_url} (released: {release_date})")
             return podcast
         except Exception as e:
             logger.error(f"Failed to create podcast for entry '{title}': {str(e)}")

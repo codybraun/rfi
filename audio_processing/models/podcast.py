@@ -9,20 +9,24 @@ import time
 import mimetypes
 from .groq_mixin import GroqMixin
 from .aws_mixin import AwsMixin
+from .taggable_mixin import TaggableMixin
+from .summarizable_mixin import SummarizableMixin
 import boto3
 import time
 import uuid
-from botocore.exceptions import ClientError, NoCredentialsError
 
 logger = logging.getLogger(__name__)
 transcribe_client = boto3.client('transcribe', region_name='us-east-1')
 
-class Podcast(models.Model, GroqMixin, AwsMixin):
+class Podcast(models.Model, GroqMixin, AwsMixin, TaggableMixin, SummarizableMixin):
     rss_feed = models.ForeignKey('RSSFeed', on_delete=models.CASCADE, related_name='podcasts', blank=True, null=True, help_text="RSS feed this podcast came from")
     raw_audio_url = models.URLField(max_length=2000, help_text="URL of the raw audio file")
     transcript = models.TextField(blank=True, null=True, help_text="Raw transcript from speech-to-text")
     script_transcript = models.TextField(blank=True, null=True, help_text="Formatted transcript with speaker identification")
+    summary = models.TextField(blank=True, null=True, help_text="AI-generated summary of the episode")
+    title = models.CharField(max_length=512, blank=True, null=True, help_text="Title of the podcast episode")
     tags = models.ManyToManyField('Tag', blank=True, related_name='podcasts', help_text="Tags associated with this podcast")
+    release_date = models.DateTimeField(blank=True, null=True, help_text="Original release date of the podcast episode")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -162,93 +166,6 @@ class Podcast(models.Model, GroqMixin, AwsMixin):
             self.raw_audio_url = self.clean_url(self.raw_audio_url)
         super().save(*args, **kwargs)
     
-    def _validate_transcript(self):
-        """Check if transcript exists and is valid for processing."""
-        if not self.transcript or not self.transcript.strip():
-            logger.warning(f"No transcript available for podcast: {self.raw_audio_url}")
-            return False
-        return True
-    
-    def _get_available_tags(self):
-        """Get all available tags formatted for LLM processing."""
-        from .tag import Tag
-        all_tags = Tag.objects.all()
-        
-        if not all_tags.exists():
-            logger.warning("No tags available in the database")
-            return None
-        
-        tag_list = []
-        for tag in all_tags:
-            tag_info = {
-                "id": tag.id,
-                "name": tag.name,
-                "description": tag.description or tag.name
-            }
-            tag_list.append(tag_info)
-        
-        return tag_list
-    
-    
-    def _parse_and_apply_tags(self, llm_response):
-        """Parse LLM response and apply valid tags to the podcast."""
-        import json
-        from .tag import Tag
-        
-        try:
-            suggested_tag_ids = json.loads(llm_response)
-            if not isinstance(suggested_tag_ids, list):
-                logger.error(f"Expected list of tag IDs, got: {type(suggested_tag_ids)}")
-                return None
-            
-            applied_tags = []
-            for tag_id in suggested_tag_ids:
-                try:
-                    tag = Tag.objects.get(id=tag_id)
-                    self.tags.add(tag)
-                    applied_tags.append(tag_id)
-                    logger.info(f"Applied tag '{tag.name}' to podcast: {self.raw_audio_url}")
-                except Tag.DoesNotExist:
-                    logger.warning(f"Tag with ID {tag_id} does not exist")
-            
-            if applied_tags:
-                logger.info(f"Successfully applied {len(applied_tags)} tags to podcast: {self.raw_audio_url}")
-                return applied_tags
-            else:
-                logger.warning(f"No valid tags were applied to podcast: {self.raw_audio_url}")
-                return []
-                
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM response as JSON: {llm_response}")
-            return None
-    
-    def suggest_and_apply_tags(self):
-        """
-        Use Groq LLM to analyze the podcast transcript and suggest relevant tags.
-        Returns a list of applied tag IDs or None if failed.
-        """
-        # Validate transcript
-        if not self._validate_transcript():
-            return None
-        
-        # Get available tags
-        tag_list = self._get_available_tags()
-        if tag_list is None:
-            return None
-        
-        logger.info(f"Analyzing transcript for tag suggestions: {self.raw_audio_url}")
-        
-        # Get tag suggestions from Groq
-        llm_response = self._call_groq_for_tag_suggestions(tag_list)
-        if llm_response is None:
-            logger.error(f"Failed to get tag suggestions for podcast: {self.raw_audio_url}")
-            return None
-        
-        # Parse and apply tags
-        applied_tags = self._parse_and_apply_tags(llm_response)
-        return applied_tags
-
-
     def generate_transcript(self, method='groq'):
         """
         Generate transcript using the specified method or auto-detect best available.
@@ -289,13 +206,14 @@ class Podcast(models.Model, GroqMixin, AwsMixin):
 
     def process_complete_workflow(self):
         """
-        Complete workflow: generate transcript, apply tags, and create speaker script.
+        Complete workflow: generate transcript, apply tags, create speaker script, and generate summary.
         Returns a summary of what was accomplished.
         """
         results = {
             'transcript_generated': False,
             'tags_applied': 0,
             'script_generated': False,
+            'summary_generated': False,
             'errors': []
         }
         
@@ -325,6 +243,14 @@ class Podcast(models.Model, GroqMixin, AwsMixin):
                 logger.info(f"Speaker script generated for: {self.raw_audio_url}")
             else:
                 results['errors'].append("Failed to generate speaker script")
+            
+            # Step 4: Generate episode summary
+            summary = self.generate_summary()
+            if summary:
+                results['summary_generated'] = True
+                logger.info(f"Episode summary generated for: {self.raw_audio_url}")
+            else:
+                results['errors'].append("Failed to generate episode summary")
             
             return results
             

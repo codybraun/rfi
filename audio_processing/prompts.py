@@ -54,3 +54,34 @@ Ezra Klein: Welcome to today's show. I'm Ezra Klein here with my guest John Doe.
 John Doe: Thanks for having me on the show.
 Ezra Klein: Here's my first question for you...
 [Discussion continues...]"""
+
+def get_episode_summary_prompt(transcript):
+    """
+    Generate a prompt for creating an episode summary from a transcript.
+    
+    Args:
+        transcript: The full podcast transcript to summarize
+    
+    Returns:
+        str: Formatted prompt for episode summary generation
+    """
+    return f"""You are an AI assistant that creates concise, informative summaries of podcast episodes.
+
+Podcast transcript:
+{transcript}
+
+Please create a comprehensive summary of this podcast episode. Your summary should include:
+
+1. **Main Topic/Theme**: What is the primary subject or focus of the episode?
+
+2. **Key Points Discussed**: What are the most important ideas, arguments, or insights presented?
+
+3. **Notable Quotes or Highlights**: Any particularly memorable or impactful statements
+
+4. **Guests/Participants**: Who are the speakers and what are their roles or expertise?
+
+5. **Conclusions/Takeaways**: What are the main conclusions or actionable insights for listeners?
+
+Format your response as a well-structured summary that would help someone decide if they want to listen to the full episode. Be concise but comprehensive, aiming for 200-400 words.
+
+Do not include any meta-commentary about the task or introductory phrases like "This podcast discusses..." - just provide the summary content directly."""
